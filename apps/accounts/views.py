@@ -121,6 +121,7 @@ class ResendOTPView(BaseResponseMixin, generics.GenericAPIView):
         purpose = serializer.validated_data["purpose"]
 
         try:
+            print(f"📩 [ResendOTP Request] Email: {email} | Purpose: {purpose}", flush=True)
             user = User.objects.get(email=email)
 
             if user.is_blocked:
@@ -146,6 +147,7 @@ class ResendOTPView(BaseResponseMixin, generics.GenericAPIView):
             )
 
         except User.DoesNotExist:
+            print(f"⚠️ [ResendOTP Notice] No user found in database with email: '{email}'", flush=True)
             return self.success_response(
                 message="If the email exists, an OTP has been sent"
             )

@@ -30,12 +30,12 @@ DATABASES = {
     }
 }
 
-EMAIL_HOST = env.str("EMAIL_HOST_DEV", default="smtp4dev")
-EMAIL_PORT = env.int("EMAIL_PORT_DEV", default=25)
-EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS_DEV", default=False)
-EMAIL_HOST_USER = env.str("EMAIL_HOST_USER_DEV", default="")
-EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD_DEV", default="")
-DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL_DEV", default="no-reply@realsuccess.com")
+EMAIL_HOST = env.str("EMAIL_HOST_DEV", default=env.str("EMAIL_HOST", default="smtp4dev"))
+EMAIL_PORT = env.int("EMAIL_PORT_DEV", default=env.int("EMAIL_PORT", default=587))
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS_DEV", default=env.bool("EMAIL_USE_TLS", default=True))
+EMAIL_HOST_USER = env.str("EMAIL_HOST_USER_DEV", default=env.str("EMAIL_HOST_USER", default=""))
+EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD_DEV", default=env.str("EMAIL_HOST_PASSWORD", default=""))
+DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL_DEV", default=env.str("DEFAULT_FROM_EMAIL", default="no-reply@realsuccess.com"))
 
 BREVO_API_KEY = env.str("BREVO_API_KEY", default="")
 BREVO_FROM_EMAIL = env.str("BREVO_FROM_EMAIL", default="no-reply@realsuccess.com")

@@ -26,6 +26,10 @@ def send_otp_email(user, otp_code, purpose):
     text_content = render_to_string("accounts/otp_email.txt", context)
     html_content = render_to_string("accounts/otp_email.html", context)
 
+    # Always log OTP to server console/logs so it is immediately visible in docker logs
+    print(f"\n========================================\n🔑 [OTP CODE] Purpose: {purpose.upper()} | Email: {user.email} | OTP: {otp_code}\n========================================\n", flush=True)
+    logger.info(f"🔑 [OTP CODE] Purpose: {purpose} | Email: {user.email} | OTP: {otp_code}")
+
     # 1. Try Brevo if API key is provided
     if getattr(settings, 'BREVO_API_KEY', None):
         brevo_service = BrevoEmailService()
@@ -51,5 +55,6 @@ def send_otp_email(user, otp_code, purpose):
         email.attach_alternative(html_content, "text/html")
         return email.send(fail_silently=False)
     except Exception as e:
+        print(f"❌ [EMAIL DELIVERY ERROR] Failed to deliver email to {user.email}: {e}", flush=True)
         logger.error(f"Failed to send email to {user.email}: {e}")
         return None
