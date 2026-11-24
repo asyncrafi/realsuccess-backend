@@ -33,7 +33,11 @@ def send_otp_email(user, otp_code, purpose):
     # 1. Try Brevo if API key is provided
     if getattr(settings, 'BREVO_API_KEY', None):
         brevo_service = BrevoEmailService()
-        to_name = getattr(user.profile, 'name', '') if hasattr(user, 'profile') and user.profile.name else ''
+        to_name = ''
+        if hasattr(user, 'profile') and user.profile and getattr(user.profile, 'name', None):
+            to_name = user.profile.name
+        if not to_name:
+            to_name = user.email.split('@')[0] if user.email else 'User'
         res = brevo_service.send_transactional_email(
             to_email=user.email,
             to_name=to_name,
