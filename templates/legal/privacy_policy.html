@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - Real Success</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --bg-light: #f9fafb;
+            --card-bg: #ffffff;
+            --border: #e5e7eb;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-light);
+            color: var(--text-main);
+            line-height: 1.7;
+            padding: 0;
+        }
+        header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+            color: #ffffff;
+            padding: 48px 24px 40px;
+            text-align: center;
+        }
+        .header-content {
+            max-width: 860px;
+            margin: 0 auto;
+        }
+        .logo-title {
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+        }
+        .subtitle {
+            font-size: 16px;
+            opacity: 0.9;
+            font-weight: 400;
+        }
+        .badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 4px 14px;
+            border-radius: 9999px;
+            font-size: 13px;
+            margin-top: 14px;
+        }
+        main {
+            max-width: 860px;
+            margin: -24px auto 60px;
+            padding: 0 20px;
+        }
+        .content-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+            border: 1px solid var(--border);
+        }
+        .content-card h1, .content-card h2, .content-card h3 {
+            color: #111827;
+            margin-top: 28px;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+        .content-card h1 { font-size: 26px; margin-top: 0; }
+        .content-card h2 { font-size: 20px; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px; }
+        .content-card h3 { font-size: 17px; }
+        .content-card p {
+            margin-bottom: 16px;
+            color: #374151;
+            font-size: 15px;
+        }
+        .content-card ul, .content-card ol {
+            margin-bottom: 20px;
+            padding-left: 24px;
+            color: #374151;
+            font-size: 15px;
+        }
+        .content-card li {
+            margin-bottom: 8px;
+        }
+        footer {
+            text-align: center;
+            padding: 30px 20px;
+            color: var(--text-muted);
+            font-size: 13px;
+            border-top: 1px solid var(--border);
+            background: #ffffff;
+        }
+        footer a {
+            color: var(--primary);
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        footer a:hover {
+            text-decoration: underline;
+        }
+        @media (max-width: 640px) {
+            .content-card {
+                padding: 24px;
+            }
+            .logo-title {
+                font-size: 26px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1 class="logo-title">Real Success</h1>
+            <p class="subtitle">Official Privacy Policy</p>
+            <div class="badge">Last Updated: {{ updated_at|date:"F d, Y" }}</div>
+        </div>
+    </header>
+
+    <main>
+        <article class="content-card">
+            {{ content|safe }}
+        </article>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 Real Success. All rights reserved.</p>
+        <p style="margin-top: 8px;">
+            <a href="/terms/">Terms & Conditions</a> &bull;
+            <a href="/privacy/">Privacy Policy</a> &bull;
+            <a href="/delete-account/">Delete Account / User Data</a>
+        </p>
+    </footer>
+</body>
+</html>

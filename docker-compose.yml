@@ -1,0 +1,112 @@
+services:
+  web:
+    build: .
+    container_name: realsuccess_backend
+    ports:
+      - "8003:8000"
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --reload
+
+  celery:
+    build: .
+    container_name: realsuccess_celery
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    command: celery -A config worker --loglevel=info
+
+  celery_beat:
+    build: .
+    container_name: realsuccess_celery_beat
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    command: celery -A config beat --loglevel=info
+
+  flower:
+    build: .
+    container_name: realsuccess_flower
+    ports:
+      - "5553:5555"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    restart: unless-stopped
+    entrypoint: []
+    command: celery -A config flower --port=5555 --address=0.0.0.0
+
+  db:
+    image: postgres:15
+    container_name: realsuccess_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - .env
+    ports:
+      - "5436:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: realsuccess_redis
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  smtp4dev:
+    image: rnwood/smtp4dev:linux-amd64-v3
+    container_name: realsuccess_smtp4dev
+    ports:
+      - "3003:80"
+      - "2528:25"
+    volumes:
+      - smtp4dev_data:/smtp4dev
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: realsuccess_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://web:8000
+    depends_on:
+      - web
+
+  cloudflared_smtp:
+    image: cloudflare/cloudflared:latest
+    container_name: realsuccess_smtp_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://smtp4dev:80
+    depends_on:
+      - smtp4dev
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_volume:
+  media_volume:
+  smtp4dev_data:

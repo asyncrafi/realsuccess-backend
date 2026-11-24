@@ -1,0 +1,22 @@
+from django.urls import path
+from .views import (
+    TicketListCreateView,
+    TicketDetailView,
+    TicketCheckInView,
+    MyTicketView,
+    AttendeeListView,
+    AttendeeDetailView,
+)
+
+urlpatterns = [
+    # Tickets
+    path("", TicketListCreateView.as_view(), name="ticket-list-create"),
+    path("my-ticket/", MyTicketView.as_view(), name="ticket-my-ticket"),
+    path("<int:pk>/", TicketDetailView.as_view(), name="ticket-detail"),
+    path("<int:pk>/check-in/", TicketCheckInView.as_view(), name="ticket-check-in"),
+    path("check-in/", TicketCheckInView.as_view(), name="ticket-check-in-post"),
+
+    # Attendees (Admin view)
+    path("attendees/", AttendeeListView.as_view(), name="attendee-list"),
+    path("attendees/<int:pk>/", AttendeeDetailView.as_view(), name="attendee-detail"),
+]
