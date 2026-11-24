@@ -53,7 +53,7 @@ class Ticket(models.Model):
     qr_code_data = models.TextField(blank=True, default="")
     price = models.CharField(max_length=50, default="$1,000")
     seat_no = models.CharField(max_length=50, blank=True, default="General Area")
-    issue_date = models.DateField(default=timezone.now)
+    issue_date = models.DateField(default=timezone.localdate)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
