@@ -147,10 +147,23 @@ class ResendOTPView(BaseResponseMixin, generics.GenericAPIView):
             )
 
         except User.DoesNotExist:
-            print(f"⚠️ [ResendOTP Notice] No user found in database with email: '{email}'", flush=True)
-            return self.success_response(
-                message="If the email exists, an OTP has been sent"
-            )
+            if purpose == "verification":
+                print(f"✨ [ResendOTP Auto-Create] Creating unverified user and sending OTP to '{email}'", flush=True)
+                import uuid
+                temp_pw = f"Pass-{uuid.uuid4().hex[:12]}!"
+                user = User.objects.create(email=email, is_active=False)
+                user.set_password(temp_pw)
+                user.save()
+                register_serializer = RegisterSerializer()
+                register_serializer.send_verification_otp(user)
+                return self.success_response(
+                    message="OTP has been sent to your email"
+                )
+            else:
+                print(f"⚠️ [ResendOTP Notice] No user found in database with email: '{email}'", flush=True)
+                return self.success_response(
+                    message="If the email exists, an OTP has been sent"
+                )
 
 
 class LoginView(BaseResponseMixin, generics.GenericAPIView):
