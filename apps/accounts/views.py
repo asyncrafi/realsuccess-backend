@@ -50,27 +50,16 @@ class RegisterView(BaseResponseMixin, generics.CreateAPIView):
         # Check if user exists
         if User.objects.filter(email=email).exists():
             user = User.objects.get(email=email)
-
-            if user.is_active:
-                return self.success_response(
-                    data={
-                        "email": email,
-                        "is_sent": False
-                    },
-                    message="User with this email already exists and is verified.",
-                    status_code=status.HTTP_200_OK
-                )
-            else:
-                serializer = self.get_serializer()
-                serializer.send_verification_otp(user)
-                return self.success_response(
-                    data={
-                        "email": email,
-                        "is_sent": True
-                    },
-                    message="User not verified. New OTP sent to your email.",
-                    status_code=status.HTTP_200_OK
-                )
+            serializer = self.get_serializer()
+            serializer.send_verification_otp(user)
+            return self.success_response(
+                data={
+                    "email": email,
+                    "is_sent": True
+                },
+                message="OTP sent to your email.",
+                status_code=status.HTTP_200_OK
+            )
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -131,11 +120,6 @@ class ResendOTPView(BaseResponseMixin, generics.GenericAPIView):
                 )
 
             if purpose == "verification":
-                if user.is_active:
-                    return self.error_response(
-                        message="Email is already verified",
-                        status_code=status.HTTP_400_BAD_REQUEST
-                    )
                 register_serializer = RegisterSerializer()
                 register_serializer.send_verification_otp(user)
             elif purpose == "password_reset":
