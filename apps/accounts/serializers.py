@@ -402,6 +402,7 @@ class SocialAuthSerializer(serializers.Serializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     profile_picture = serializers.ImageField(required=False)
     email = serializers.EmailField(source='user.email', read_only=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = UserProfile
@@ -414,4 +415,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
         from datetime import date
         if value and value > date.today():
             raise serializers.ValidationError("Date of birth cannot be in the future.")
+        return value
+
+    def validate_phone(self, value):
+        if value:
+            import re
+            cleaned = re.sub(r"[^\d+]", "", value)
+            return cleaned[:15]
         return value
