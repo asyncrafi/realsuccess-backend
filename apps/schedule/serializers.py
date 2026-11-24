@@ -1,5 +1,7 @@
+from django.utils import timezone
 from rest_framework import serializers
 from .models import Speaker, Session, SessionResource, SessionBookmark
+from apps.events.models import Event
 
 
 class SessionResourceSerializer(serializers.ModelSerializer):
@@ -30,8 +32,12 @@ class SpeakerSerializer(serializers.ModelSerializer):
 
 
 class SessionListSerializer(serializers.ModelSerializer):
-    speakerName = serializers.CharField(source="speaker.name", read_only=True, default="")
-    speakerRole = serializers.CharField(source="speaker.role", read_only=True, default="")
+    event = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all(), required=False, allow_null=True)
+    date = serializers.DateField(required=False)
+    time = serializers.CharField(required=False, default="09:00 AM – 10:30 AM")
+    venue = serializers.CharField(required=False, default="Main Hall")
+    speakerName = serializers.CharField(required=False, allow_blank=True, default="")
+    speakerRole = serializers.CharField(required=False, allow_blank=True, default="")
     sessionTitle = serializers.CharField(source="session_title")
     is_bookmarked = serializers.SerializerMethodField()
 
@@ -63,6 +69,31 @@ class SessionListSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.bookmarks.filter(user=request.user).exists()
         return False
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        if obj.speaker:
+            data["speakerName"] = obj.speaker.name
+            data["speakerRole"] = obj.speaker.role
+        return data
+
+    def create(self, validated_data):
+        speaker_name = validated_data.pop("speakerName", "")
+        speaker_role = validated_data.pop("speakerRole", "")
+        if not validated_data.get("event"):
+            ev = Event.objects.first()
+            if not ev:
+                ev = Event.objects.create(name="RealSuccess Main Event", access_code="RS-MAIN-001")
+            validated_data["event"] = ev
+        if not validated_data.get("date"):
+            validated_data["date"] = timezone.localdate()
+        if speaker_name and not validated_data.get("speaker"):
+            speaker, _ = Speaker.objects.get_or_create(
+                name=speaker_name,
+                defaults={"role": speaker_role or "Keynote Speaker"}
+            )
+            validated_data["speaker"] = speaker
+        return super().create(validated_data)
 
 
 class SessionDetailSerializer(SessionListSerializer):

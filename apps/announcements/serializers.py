@@ -2,6 +2,9 @@ from rest_framework import serializers
 from .models import Announcement, AnnouncementAttachment
 
 
+from apps.events.models import Event
+
+
 class AnnouncementAttachmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = AnnouncementAttachment
@@ -9,8 +12,9 @@ class AnnouncementAttachmentSerializer(serializers.ModelSerializer):
 
 
 class AnnouncementSerializer(serializers.ModelSerializer):
+    event = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all(), required=False, allow_null=True)
     eventName = serializers.CharField(source="event.name", read_only=True)
-    publishedBy = serializers.CharField(source="published_by")
+    publishedBy = serializers.CharField(source="published_by", required=False, default="Admin")
     date = serializers.SerializerMethodField()
     attachments = AnnouncementAttachmentSerializer(many=True, read_only=True)
 
@@ -40,6 +44,16 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         if obj.created_at:
             return obj.created_at.strftime("%d %B %Y")
         return ""
+
+    def create(self, validated_data):
+        if not validated_data.get("event"):
+            ev = Event.objects.first()
+            if not ev:
+                ev = Event.objects.create(name="RealSuccess Main Event", access_code="RS-MAIN-001")
+            validated_data["event"] = ev
+        if not validated_data.get("published_by"):
+            validated_data["published_by"] = "Admin"
+        return super().create(validated_data)
 
 
 class AnnouncementDetailSerializer(AnnouncementSerializer):
