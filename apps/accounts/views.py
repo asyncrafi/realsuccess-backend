@@ -9,6 +9,11 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.conf import settings
+from django.core.cache import cache
+import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.apple.views import AppleOAuth2Adapter
@@ -16,6 +21,11 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 
 from apps.core.utils.mixins import BaseResponseMixin
+from apps.accounts.utils.event_auth_helpers import (
+    resolve_event,
+    is_user_verified_for_event,
+    mark_user_verified_for_event,
+)
 from .models import UserProfile
 from .serializers import (
     RegisterSerializer,
@@ -45,33 +55,81 @@ class RegisterView(BaseResponseMixin, generics.CreateAPIView):
     throttle_classes = [AnonRateThrottle]
 
     def create(self, request, *args, **kwargs):
-        email = request.data.get("email")
+        email = (request.data.get("email") or "").strip().lower()
+        access_code = request.data.get("access_code") or request.data.get("event_access_code")
+        event_id = request.data.get("event_id")
 
-        # Check if user exists
-        if User.objects.filter(email=email).exists():
-            user = User.objects.get(email=email)
-            serializer = self.get_serializer()
-            serializer.send_verification_otp(user)
+        if not email:
+            return self.error_response(message="Email is required", status_code=status.HTTP_400_BAD_REQUEST)
+
+        event = resolve_event(request, access_code=access_code, event_id=event_id, email=email)
+        user = User.objects.filter(email=email).first()
+
+        # Check if already verified for this event
+        if is_user_verified_for_event(email, event, user=user):
+            if not user:
+                temp_pw = f"Pass-{uuid.uuid4().hex[:12]}!"
+                user = User.objects.create(email=email, is_active=True)
+                user.set_password(temp_pw)
+                user.save()
+            elif not user.is_active:
+                user.is_active = True
+                user.save()
+
+            mark_user_verified_for_event(email, event, user=user)
+            refresh = RefreshToken.for_user(user)
+            print(f"✅ [Register] User '{email}' already verified for '{event.name if event else 'Event'}'. Bypassing OTP.", flush=True)
+
             return self.success_response(
                 data={
-                    "email": email,
-                    "is_sent": True
+                    "email": user.email,
+                    "is_sent": False,
+                    "already_verified": True,
+                    "tokens": {
+                        "refresh": str(refresh),
+                        "access": str(refresh.access_token),
+                    },
+                    "refresh": str(refresh),
+                    "access": str(refresh.access_token),
+                    "event_id": event.id if event else None,
+                    "event_name": event.name if event else None,
+                    "access_code": event.access_code if event else None,
                 },
-                message="OTP sent to your email.",
-                status_code=status.HTTP_200_OK
+                message="Welcome back! You are already verified for this event.",
+                status_code=status.HTTP_200_OK,
             )
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        # User is NOT verified for this event -> Send OTP
+        if not user:
+            serializer = self.get_serializer(data=request.data)
+            if serializer.is_valid():
+                user = serializer.save()
+            else:
+                temp_pw = f"Pass-{uuid.uuid4().hex[:12]}!"
+                user = User.objects.create(email=email, is_active=False)
+                user.set_password(temp_pw)
+                user.save()
+                reg_ser = RegisterSerializer()
+                reg_ser.send_verification_otp(user)
+        else:
+            reg_ser = RegisterSerializer()
+            reg_ser.send_verification_otp(user)
+
+        if event:
+            cache.set(f"pending_event_{email}", event.id, timeout=3600)
+
+        print(f"📩 [Register] User '{email}' needs verification for '{event.name if event else 'Event'}'. OTP sent.", flush=True)
 
         return self.success_response(
             data={
                 "email": user.email,
-                "is_sent": True
+                "is_sent": True,
+                "already_verified": False,
+                "event_id": event.id if event else None,
+                "event_name": event.name if event else None,
             },
-            message="Registration successful. Please check your email for verification code.",
-            status_code=status.HTTP_201_CREATED
+            message="OTP sent to your email. Please check your inbox for verification code.",
+            status_code=status.HTTP_200_OK,
         )
 
 
@@ -85,13 +143,44 @@ class VerifyEmailView(BaseResponseMixin, generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         user = serializer.validated_data["user"]
+        email = user.email.strip().lower()
+        access_code = serializer.validated_data.get("access_code")
+        event_id = serializer.validated_data.get("event_id")
+
+        # Resolve event and mark user verified for this event
+        event = resolve_event(request, access_code=access_code, event_id=event_id, email=email)
+        ticket = None
+        if event:
+            ticket = mark_user_verified_for_event(email, event, user=user)
+            print(f"🎉 [VerifyEmail] User '{email}' verified for event '{event.name}'. Ticket: {ticket.ticket_id if ticket else 'N/A'}", flush=True)
+
         refresh = RefreshToken.for_user(user)
 
         return Response(
             {
+                "success": True,
+                "message": "Email verified successfully",
                 "refresh": str(refresh),
                 "access": str(refresh.access_token),
-                "message": "Email verified successfully",
+                "tokens": {
+                    "refresh": str(refresh),
+                    "access": str(refresh.access_token),
+                },
+                "already_verified": True,
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                },
+                "event": {
+                    "id": event.id if event else None,
+                    "name": event.name if event else None,
+                    "access_code": event.access_code if event else None,
+                } if event else None,
+                "ticket": {
+                    "id": ticket.id if ticket else None,
+                    "ticket_id": ticket.ticket_id if ticket else None,
+                    "seat_no": ticket.seat_no if ticket else None,
+                } if ticket else None,
             },
             status=status.HTTP_200_OK,
         )
@@ -106,48 +195,94 @@ class ResendOTPView(BaseResponseMixin, generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
+        email = serializer.validated_data["email"].strip().lower()
         purpose = serializer.validated_data["purpose"]
+        access_code = serializer.validated_data.get("access_code")
+        event_id = serializer.validated_data.get("event_id")
 
         try:
             print(f"📩 [ResendOTP Request] Email: {email} | Purpose: {purpose}", flush=True)
-            user = User.objects.get(email=email)
+            user = User.objects.filter(email=email).first()
 
-            if user.is_blocked:
+            if user and user.is_blocked:
                 return self.error_response(
                     message="Your account has been suspended. Please contact support.",
                     status_code=status.HTTP_403_FORBIDDEN
                 )
 
             if purpose == "verification":
+                event = resolve_event(request, access_code=access_code, event_id=event_id, email=email)
+
+                # Check if already verified for this event
+                if is_user_verified_for_event(email, event, user=user):
+                    if not user:
+                        temp_pw = f"Pass-{uuid.uuid4().hex[:12]}!"
+                        user = User.objects.create(email=email, is_active=True)
+                        user.set_password(temp_pw)
+                        user.save()
+                    elif not user.is_active:
+                        user.is_active = True
+                        user.save()
+
+                    mark_user_verified_for_event(email, event, user=user)
+                    refresh = RefreshToken.for_user(user)
+                    print(f"✅ [ResendOTP] User '{email}' already verified for '{event.name if event else 'Event'}'. Bypassing OTP.", flush=True)
+
+                    return self.success_response(
+                        data={
+                            "email": user.email,
+                            "is_sent": False,
+                            "already_verified": True,
+                            "tokens": {
+                                "refresh": str(refresh),
+                                "access": str(refresh.access_token),
+                            },
+                            "refresh": str(refresh),
+                            "access": str(refresh.access_token),
+                            "event_id": event.id if event else None,
+                            "event_name": event.name if event else None,
+                            "access_code": event.access_code if event else None,
+                        },
+                        message="Welcome back! You are already verified for this event.",
+                        status_code=status.HTTP_200_OK,
+                    )
+
+                # Not verified for this event -> Send OTP
+                if not user:
+                    temp_pw = f"Pass-{uuid.uuid4().hex[:12]}!"
+                    user = User.objects.create(email=email, is_active=False)
+                    user.set_password(temp_pw)
+                    user.save()
+
+                if event:
+                    cache.set(f"pending_event_{email}", event.id, timeout=3600)
+
                 register_serializer = RegisterSerializer()
                 register_serializer.send_verification_otp(user)
+
+                print(f"📩 [ResendOTP] User '{email}' needs verification for '{event.name if event else 'Event'}'. Sent OTP.", flush=True)
+
+                return self.success_response(
+                    data={
+                        "email": email,
+                        "is_sent": True,
+                        "already_verified": False,
+                        "event_id": event.id if event else None,
+                        "event_name": event.name if event else None,
+                    },
+                    message=f"OTP has been sent to your email for {event.name if event else 'event'}."
+                )
+
             elif purpose == "password_reset":
                 reset_serializer = PasswordResetRequestSerializer()
                 reset_serializer.send_reset_otp(email)
-
-            return self.success_response(
-                message="OTP has been sent to your email"
-            )
-
-        except User.DoesNotExist:
-            if purpose == "verification":
-                print(f"✨ [ResendOTP Auto-Create] Creating unverified user and sending OTP to '{email}'", flush=True)
-                import uuid
-                temp_pw = f"Pass-{uuid.uuid4().hex[:12]}!"
-                user = User.objects.create(email=email, is_active=False)
-                user.set_password(temp_pw)
-                user.save()
-                register_serializer = RegisterSerializer()
-                register_serializer.send_verification_otp(user)
                 return self.success_response(
-                    message="OTP has been sent to your email"
+                    message="Password reset OTP has been sent to your email"
                 )
-            else:
-                print(f"⚠️ [ResendOTP Notice] No user found in database with email: '{email}'", flush=True)
-                return self.success_response(
-                    message="If the email exists, an OTP has been sent"
-                )
+
+        except Exception as e:
+            logger.error(f"Error in ResendOTPView: {e}")
+            return self.error_response(message="An error occurred while processing your request.")
 
 
 class LoginView(BaseResponseMixin, generics.GenericAPIView):

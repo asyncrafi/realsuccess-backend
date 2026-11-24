@@ -64,6 +64,8 @@ class RegisterSerializer(serializers.ModelSerializer):
 class VerifyEmailSerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp = serializers.CharField(max_length=4, min_length=4)
+    access_code = serializers.CharField(required=False, allow_blank=True, default="")
+    event_id = serializers.IntegerField(required=False, default=None)
 
     def validate(self, attrs):
         email = attrs.get("email")
@@ -222,6 +224,8 @@ class SocialLoginSerializer(serializers.Serializer):
 class ResendOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
     purpose = serializers.ChoiceField(choices=["verification", "password_reset"])
+    access_code = serializers.CharField(required=False, allow_blank=True, default="")
+    event_id = serializers.IntegerField(required=False, default=None)
 
 
 class AccountSoftDeleteSerializer(serializers.Serializer):

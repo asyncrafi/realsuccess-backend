@@ -126,6 +126,15 @@ class VerifyAccessCodeView(BaseResponseMixin, generics.GenericAPIView):
 
         try:
             event = Event.objects.get(access_code__iexact=code)
+
+            # Cache the verified event for the client's IP so subsequent auth calls resolve the event
+            from apps.accounts.utils.event_auth_helpers import get_client_ip
+            from django.core.cache import cache
+            client_ip = get_client_ip(request)
+            if client_ip:
+                cache.set(f"last_event_code_{client_ip}", event.access_code, timeout=3600)
+                cache.set(f"last_event_id_{client_ip}", event.id, timeout=3600)
+
             return self.success_response(
                 data={
                     "event_id": event.id,
