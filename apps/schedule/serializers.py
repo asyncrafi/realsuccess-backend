@@ -33,6 +33,7 @@ class SpeakerSerializer(serializers.ModelSerializer):
 
 class SessionListSerializer(serializers.ModelSerializer):
     event = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all(), required=False, allow_null=True)
+    event_name = serializers.CharField(source="event.name", read_only=True)
     date = serializers.DateField(required=False)
     time = serializers.CharField(required=False, default="09:00 AM – 10:30 AM")
     venue = serializers.CharField(required=False, default="Main Hall")
@@ -46,6 +47,7 @@ class SessionListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "event",
+            "event_name",
             "day_number",
             "date",
             "sessionTitle",
@@ -87,6 +89,9 @@ class SessionListSerializer(serializers.ModelSerializer):
             validated_data["event"] = ev
         if not validated_data.get("date"):
             validated_data["date"] = timezone.localdate()
+        ev = validated_data.get("event")
+        if ev and ev.start_date and validated_data.get("date"):
+            validated_data["day_number"] = max(1, (validated_data["date"] - ev.start_date).days + 1)
         if speaker_name and not validated_data.get("speaker"):
             speaker, _ = Speaker.objects.get_or_create(
                 name=speaker_name,
@@ -94,6 +99,24 @@ class SessionListSerializer(serializers.ModelSerializer):
             )
             validated_data["speaker"] = speaker
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        speaker_name = validated_data.pop("speakerName", None)
+        speaker_role = validated_data.pop("speakerRole", None)
+        ev = validated_data.get("event", instance.event)
+        dt = validated_data.get("date", instance.date)
+        if ev and ev.start_date and dt:
+            validated_data["day_number"] = max(1, (dt - ev.start_date).days + 1)
+        if speaker_name:
+            speaker, _ = Speaker.objects.get_or_create(
+                name=speaker_name,
+                defaults={"role": speaker_role or "Keynote Speaker"}
+            )
+            if speaker_role and speaker.role != speaker_role:
+                speaker.role = speaker_role
+                speaker.save(update_fields=["role"])
+            validated_data["speaker"] = speaker
+        return super().update(instance, validated_data)
 
 
 class SessionDetailSerializer(SessionListSerializer):
