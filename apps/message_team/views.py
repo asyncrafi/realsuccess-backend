@@ -1,6 +1,12 @@
+import os
+import uuid
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from apps.core.utils.mixins import BaseResponseMixin
 from .models import TeamMember, Conversation
@@ -31,33 +37,7 @@ class TeamMemberListMessagesView(BaseResponseMixin, APIView):
         if is_admin_mode:
             result = []
 
-            # 1. Event Group Broadcast channels
-            group_members = TeamMember.objects.filter(channel_type="event-group")
-            for grp in group_members:
-                conv, _ = Conversation.objects.get_or_create(
-                    team_member=grp,
-                    channel_type="event-group",
-                    user=None,
-                    defaults={"event": grp.event},
-                )
-                last_msg = conv.messages.last()
-                result.append({
-                    "id": str(grp.id),
-                    "name": grp.name,
-                    "displayName": grp.display_name,
-                    "email": grp.email,
-                    "avatar": grp.avatar or "/fallback_avatar.png",
-                    "role": grp.role,
-                    "online": grp.online,
-                    "channelType": "event-group",
-                    "eventName": grp.event.name if grp.event else None,
-                    "lastMessage": last_msg.text if last_msg else "",
-                    "lastMessageTime": last_msg.timestamp.strftime("%I:%M %p") if (last_msg and last_msg.timestamp) else "",
-                    "unreadCount": conv.messages.filter(is_read=False, is_sender=False).count(),
-                    "messages": ChatMessageSerializer(conv.messages.all(), many=True, context={"request": request}).data,
-                })
-
-            # 2. Attendee conversations (Direct Chat)
+            # Attendee direct conversations sorted by most recent message
             conversations = (
                 Conversation.objects.filter(channel_type="direct-staff")
                 .select_related("user", "event", "team_member")
@@ -70,6 +50,9 @@ class TeamMemberListMessagesView(BaseResponseMixin, APIView):
                     continue
                 display_name, role, avatar = get_attendee_display_info(conv.user)
                 last_msg = conv.messages.last()
+                last_msg_text = ""
+                if last_msg:
+                    last_msg_text = last_msg.text or ("📎 Attachment" if last_msg.attachment_url else "")
 
                 result.append({
                     "id": f"conv-{conv.id}",
@@ -82,7 +65,7 @@ class TeamMemberListMessagesView(BaseResponseMixin, APIView):
                     "online": True,
                     "channelType": "direct-staff",
                     "eventName": conv.event.name if conv.event else None,
-                    "lastMessage": last_msg.text if last_msg else "",
+                    "lastMessage": last_msg_text,
                     "lastMessageTime": last_msg.timestamp.strftime("%I:%M %p") if (last_msg and last_msg.timestamp) else "",
                     "unreadCount": conv.messages.filter(is_read=False, is_sender=False).count(),
                     "messages": ChatMessageSerializer(conv.messages.all(), many=True, context={"request": request}).data,
@@ -116,8 +99,8 @@ class SendChatMessageView(BaseResponseMixin, APIView):
             )
 
         raw_member_id = str(serializer.validated_data["member_id"]).strip()
-        text = serializer.validated_data["text"].strip()
-        attachment_url = serializer.validated_data.get("attachment_url") or ""
+        text = (serializer.validated_data.get("text") or "").strip()
+        attachment_url = (serializer.validated_data.get("attachment_url") or "").strip()
 
         user = request.user if request.user.is_authenticated else None
         conv, new_msg = save_chat_message_sync(user, raw_member_id, text, attachment_url)
@@ -131,6 +114,44 @@ class SendChatMessageView(BaseResponseMixin, APIView):
         return self.success_response(
             data=ChatMessageSerializer(new_msg, context={"request": request}).data,
             message="Message sent successfully",
+            status_code=status.HTTP_201_CREATED,
+        )
+
+
+class ChatAttachmentUploadView(BaseResponseMixin, APIView):
+    """
+    Uploads a chat attachment (image, PDF, doc, etc.) and returns its public URL.
+    """
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        uploaded_file = request.FILES.get("file") or request.FILES.get("attachment")
+        if not uploaded_file:
+            return self.error_response(
+                message="No file provided. Send multipart form-data with key 'file'.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ext = os.path.splitext(uploaded_file.name)[1]
+        safe_name = f"chat_attachments/{uuid.uuid4().hex}{ext}"
+        saved_path = default_storage.save(safe_name, ContentFile(uploaded_file.read()))
+        relative_url = f"{settings.MEDIA_URL}{saved_path}"
+
+        # Build absolute HTTPS URL
+        scheme = "https" if not settings.DEBUG or request.is_secure() or request.META.get("HTTP_X_FORWARDED_PROTO") == "https" else request.scheme
+        host = request.get_host()
+        full_url = f"{scheme}://{host}{relative_url}" if host else relative_url
+
+        return self.success_response(
+            data={
+                "url": full_url,
+                "relative_url": relative_url,
+                "filename": uploaded_file.name,
+                "size": uploaded_file.size,
+                "content_type": uploaded_file.content_type,
+            },
+            message="Attachment uploaded successfully",
             status_code=status.HTTP_201_CREATED,
         )
 

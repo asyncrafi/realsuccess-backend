@@ -4,7 +4,7 @@ from .models import TeamMember, Conversation, ChatMessage
 
 class ChatMessageSerializer(serializers.ModelSerializer):
     senderId = serializers.SerializerMethodField()
-    senderName = serializers.CharField(source="sender_name")
+    senderName = serializers.SerializerMethodField()
     isSender = serializers.SerializerMethodField()
     timestamp = serializers.SerializerMethodField()
 
@@ -27,6 +27,15 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         if obj.sender_user:
             return str(obj.sender_user.id)
         return "admin" if obj.is_sender else "user"
+
+    def get_senderName(self, obj):
+        if obj.sender_name and obj.sender_name != "Attendee":
+            return obj.sender_name
+        if not obj.is_sender and obj.conversation and obj.conversation.user:
+            from .consumers import get_attendee_display_info
+            display_name, _, _ = get_attendee_display_info(obj.conversation.user)
+            return display_name
+        return obj.sender_name or "Attendee"
 
     def get_isSender(self, obj):
         request = self.context.get("request")
@@ -114,5 +123,10 @@ class TeamMemberSerializer(serializers.ModelSerializer):
 
 class SendMessageRequestSerializer(serializers.Serializer):
     member_id = serializers.CharField(required=True)
-    text = serializers.CharField(required=True)
-    attachment_url = serializers.URLField(required=False, allow_blank=True)
+    text = serializers.CharField(required=False, allow_blank=True, default="")
+    attachment_url = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, attrs):
+        if not (attrs.get("text") or "").strip() and not (attrs.get("attachment_url") or "").strip():
+            raise serializers.ValidationError("Either text or attachment_url is required.")
+        return attrs

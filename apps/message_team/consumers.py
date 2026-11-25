@@ -241,8 +241,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             member_id = data.get("member_id") or data.get("conversation_id") or "1"
             attachment_url = data.get("attachment_url") or ""
 
-            if not text:
-                await self.send(text_data=json.dumps({"type": "error", "message": "Message text is required"}))
+            if not text and not attachment_url:
+                await self.send(text_data=json.dumps({"type": "error", "message": "Message text or attachment is required"}))
                 return
 
             conv, new_msg = await database_sync_to_async(save_chat_message_sync)(
