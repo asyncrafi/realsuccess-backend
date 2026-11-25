@@ -91,9 +91,7 @@ class CurrentEventView(BaseResponseMixin, generics.GenericAPIView):
         data = serializer.data
 
         # Calculate countdown components
-        event_datetime = timezone.make_aware(
-            timezone.datetime.combine(event.start_date, timezone.datetime.min.time())
-        )
+        event_datetime = event.start_datetime
         time_diff = event_datetime - timezone.now()
         total_seconds = max(0, int(time_diff.total_seconds()))
 
@@ -150,6 +148,12 @@ class VerifyAccessCodeView(BaseResponseMixin, generics.GenericAPIView):
                     "qr_registration_token": event.qr_registration_token,
                     "start_date": event.start_date.isoformat(),
                     "end_date": event.end_date.isoformat(),
+                    "start_time": event.start_time.strftime("%H:%M:%S") if event.start_time else "09:00:00",
+                    "end_time": event.end_time.strftime("%H:%M:%S") if event.end_time else "17:00:00",
+                    "check_in_early_minutes": event.check_in_early_minutes,
+                    "check_in_time": event.check_in_time.strftime("%H:%M:%S"),
+                    "check_in_time_display": event.check_in_time.strftime("%I:%M %p").lstrip("0"),
+                    "is_check_in_open": event.is_check_in_open,
                 },
                 message="Access code verified successfully"
             )

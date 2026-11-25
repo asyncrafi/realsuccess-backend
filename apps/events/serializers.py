@@ -1,3 +1,4 @@
+import datetime
 import uuid
 from decimal import Decimal
 from django.utils import timezone
@@ -17,6 +18,17 @@ class EventSerializer(serializers.ModelSerializer):
     date = serializers.SerializerMethodField()
     start_date = serializers.DateField(required=False, default=timezone.localdate)
     end_date = serializers.DateField(required=False, default=timezone.localdate)
+    start_time = serializers.TimeField(required=False, default=datetime.time(9, 0))
+    end_time = serializers.TimeField(required=False, default=datetime.time(17, 0))
+    check_in_early_minutes = serializers.IntegerField(required=False, default=30, min_value=0, max_value=720)
+    check_in_time = serializers.SerializerMethodField()
+    check_in_time_display = serializers.SerializerMethodField()
+    start_time_display = serializers.SerializerMethodField()
+    end_time_display = serializers.SerializerMethodField()
+    check_in_datetime = serializers.DateTimeField(read_only=True)
+    start_datetime = serializers.DateTimeField(read_only=True)
+    end_datetime = serializers.DateTimeField(read_only=True)
+    is_check_in_open = serializers.BooleanField(read_only=True)
     access_code = serializers.CharField(required=False)
     price = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=Decimal("0.00"))
     is_free = serializers.BooleanField(read_only=True)
@@ -34,6 +46,17 @@ class EventSerializer(serializers.ModelSerializer):
             "date",
             "start_date",
             "end_date",
+            "start_time",
+            "end_time",
+            "start_time_display",
+            "end_time_display",
+            "check_in_early_minutes",
+            "check_in_time",
+            "check_in_time_display",
+            "check_in_datetime",
+            "start_datetime",
+            "end_datetime",
+            "is_check_in_open",
             "days_duration",
             "total_tickets",
             "tickets",
@@ -50,14 +73,37 @@ class EventSerializer(serializers.ModelSerializer):
         ]
 
     def get_date(self, obj):
+        if obj.start_date and obj.end_date and obj.end_date != obj.start_date:
+            return f"{obj.start_date.strftime('%d %b %Y')} - {obj.end_date.strftime('%d %b %Y')}"
         if obj.start_date:
             return obj.start_date.strftime("%d %B %Y")
         return ""
+
+    def get_check_in_time(self, obj):
+        return obj.check_in_time.strftime("%H:%M:%S")
+
+    def get_check_in_time_display(self, obj):
+        return obj.check_in_time.strftime("%I:%M %p").lstrip("0")
+
+    def get_start_time_display(self, obj):
+        t = obj.start_time or datetime.time(9, 0)
+        return t.strftime("%I:%M %p").lstrip("0")
+
+    def get_end_time_display(self, obj):
+        t = obj.end_time or datetime.time(17, 0)
+        return t.strftime("%I:%M %p").lstrip("0")
 
     def get_price_display(self, obj):
         if obj.is_free:
             return "Free"
         return f"${obj.price:,.2f}"
+
+    def validate(self, attrs):
+        start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
+        end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        if start_date and end_date and end_date < start_date:
+            raise serializers.ValidationError({"end_date": "End date cannot be earlier than start date."})
+        return attrs
 
     def validate_price(self, value):
         if value is not None and value < 0:
@@ -70,10 +116,18 @@ class EventSerializer(serializers.ModelSerializer):
         if not validated_data.get("start_date"):
             validated_data["start_date"] = timezone.localdate()
         if not validated_data.get("end_date"):
-            validated_data["end_date"] = timezone.localdate()
+            validated_data["end_date"] = validated_data["start_date"]
+        validated_data["days_duration"] = max(1, (validated_data["end_date"] - validated_data["start_date"]).days + 1)
         if not validated_data.get("total_tickets"):
             validated_data["total_tickets"] = 400
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        start_date = validated_data.get("start_date", instance.start_date)
+        end_date = validated_data.get("end_date", instance.end_date)
+        if start_date and end_date:
+            validated_data["days_duration"] = max(1, (end_date - start_date).days + 1)
+        return super().update(instance, validated_data)
 
 
 class EventDetailSerializer(EventSerializer):

@@ -1,3 +1,4 @@
+import datetime
 import uuid
 from django.db import models
 from django.utils import timezone
@@ -16,7 +17,10 @@ class Event(models.Model):
     venue = models.CharField(max_length=255, default="RealSuccess Center")
     start_date = models.DateField(default=timezone.localdate)
     end_date = models.DateField(default=timezone.localdate)
-    days_duration = models.PositiveIntegerField(default=3)
+    start_time = models.TimeField(default=datetime.time(9, 0))
+    end_time = models.TimeField(default=datetime.time(17, 0))
+    check_in_early_minutes = models.PositiveIntegerField(default=30)
+    days_duration = models.PositiveIntegerField(default=1)
     total_tickets = models.PositiveIntegerField(default=400)
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Active")
@@ -45,6 +49,30 @@ class Event(models.Model):
     @property
     def is_free(self):
         return (self.price or 0) <= 0
+
+    @property
+    def start_datetime(self):
+        dt = datetime.datetime.combine(self.start_date, self.start_time or datetime.time(9, 0))
+        return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
+
+    @property
+    def end_datetime(self):
+        dt = datetime.datetime.combine(self.end_date, self.end_time or datetime.time(17, 0))
+        return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
+
+    @property
+    def check_in_datetime(self):
+        early_mins = self.check_in_early_minutes if self.check_in_early_minutes is not None else 30
+        return self.start_datetime - datetime.timedelta(minutes=early_mins)
+
+    @property
+    def check_in_time(self):
+        return self.check_in_datetime.time()
+
+    @property
+    def is_check_in_open(self):
+        now = timezone.now()
+        return self.check_in_datetime <= now <= self.end_datetime
 
     @property
     def attendees_count(self):
