@@ -1,6 +1,8 @@
 from rest_framework import generics, status, permissions, filters
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
+from django.db import transaction
+from django.contrib.auth import get_user_model
 from apps.core.utils.mixins import BaseResponseMixin
 from .models import Event, EventStory
 from .serializers import (
@@ -8,6 +10,7 @@ from .serializers import (
     EventDetailSerializer,
     EventStorySerializer,
     VerifyAccessCodeSerializer,
+    EventQRRegisterSerializer,
 )
 
 
@@ -141,6 +144,10 @@ class VerifyAccessCodeView(BaseResponseMixin, generics.GenericAPIView):
                     "event_name": event.name,
                     "venue": event.venue,
                     "status": event.status,
+                    "price": str(event.price),
+                    "is_free": event.is_free,
+                    "price_display": "Free" if event.is_free else f"${event.price:,.2f}",
+                    "qr_registration_token": event.qr_registration_token,
                     "start_date": event.start_date.isoformat(),
                     "end_date": event.end_date.isoformat(),
                 },
@@ -174,3 +181,150 @@ class EventStoryListCreateView(BaseResponseMixin, generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         story = serializer.save(event=event)
         return self.created_response(data=self.get_serializer(story).data)
+
+
+class EventByQRTokenView(BaseResponseMixin, generics.GenericAPIView):
+    """
+    Mobile Event QR Scan Endpoint:
+    Resolves an Event from its unique qr_registration_token (EVT-...) or access_code
+    and returns full event details including price.
+    Rejects Ticket QR codes (TKT-...) to enforce separation between Event QR and Ticket QR.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, token):
+        clean_token = (token or "").strip()
+        if clean_token.upper().startswith("TKT-") or clean_token.upper().startswith("REALSUCCESS_TICKET:"):
+            return self.error_response(
+                message="This is an individual entry ticket QR code, not an event registration QR code.",
+                error_code="INVALID_EVENT_QR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Support full URL or raw token
+        if "/" in clean_token:
+            clean_token = clean_token.rstrip("/").split("/")[-1]
+
+        event = (
+            Event.objects.filter(qr_registration_token__iexact=clean_token).first()
+            or Event.objects.filter(access_code__iexact=clean_token).first()
+        )
+        if not event:
+            return self.error_response(
+                message="Event not found for this QR code.",
+                error_code="EVENT_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = EventDetailSerializer(event)
+        return self.success_response(data=serializer.data, message="Event details retrieved successfully")
+
+
+class EventQRRegisterView(BaseResponseMixin, generics.GenericAPIView):
+    """
+    Event Registration Endpoint (via Event QR scan or event_id):
+    Creates a unique individual Ticket for the user & event.
+    - Free events -> payment_status='Paid', registration_status='Confirmed'
+    - Paid events -> payment_status='Pending Payment', registration_status='Pending'
+    Prevents duplicate registrations for the same user/email and event.
+    """
+    serializer_class = EventQRRegisterSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        token = (data.get("qr_registration_token") or "").strip()
+        if token.upper().startswith("TKT-") or token.upper().startswith("REALSUCCESS_TICKET:"):
+            return self.error_response(
+                message="Cannot register using a ticket entry QR code. Please scan the event QR code.",
+                error_code="INVALID_EVENT_QR",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if "/" in token:
+            token = token.rstrip("/").split("/")[-1]
+
+        event = None
+        if token:
+            event = (
+                Event.objects.filter(qr_registration_token__iexact=token).first()
+                or Event.objects.filter(access_code__iexact=token).first()
+            )
+        elif data.get("event_id"):
+            event = Event.objects.filter(id=data["event_id"]).first()
+        elif data.get("access_code"):
+            event = Event.objects.filter(access_code__iexact=data["access_code"].strip()).first()
+
+        if not event:
+            return self.error_response(
+                message="Event not found. Please scan a valid event QR code.",
+                error_code="EVENT_NOT_FOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        User = get_user_model()
+        auth_user = request.user if request.user.is_authenticated else None
+        email = (data.get("email") or (auth_user.email if auth_user else "")).strip().lower()
+
+        if not email:
+            return self.error_response(
+                message="Email is required to register for this event.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not auth_user:
+            auth_user = User.objects.filter(email__iexact=email).first()
+
+        profile_name = ""
+        if auth_user and hasattr(auth_user, "profile") and auth_user.profile and getattr(auth_user.profile, "name", None):
+            profile_name = auth_user.profile.name
+        attendee_name = (data.get("name") or profile_name or email.split("@")[0].replace(".", " ").capitalize()).strip()
+        attendee_phone = (data.get("phone") or "").strip()
+        ticket_type = data.get("ticket_type") or "General"
+
+        from apps.tickets.models import Ticket
+        from apps.tickets.serializers import MyTicketDetailSerializer
+
+        with transaction.atomic():
+            existing = Ticket.objects.filter(event=event, attendee_email__iexact=email).first()
+            if not existing and auth_user:
+                existing = Ticket.objects.filter(event=event, user=auth_user).first()
+
+            if existing:
+                return self.success_response(
+                    data={
+                        "already_registered": True,
+                        "ticket": MyTicketDetailSerializer(existing).data,
+                    },
+                    message="You are already registered for this event.",
+                    status_code=status.HTTP_200_OK,
+                )
+
+            payment_status = "Paid" if event.is_free else "Pending Payment"
+            ticket = Ticket.objects.create(
+                event=event,
+                user=auth_user,
+                attendee_name=attendee_name,
+                attendee_email=email,
+                attendee_phone=attendee_phone,
+                ticket_type=ticket_type,
+                payment_status=payment_status,
+                ticket_status="Unused",
+                access_code=event.access_code,
+                price_amount=event.price,
+            )
+
+        return self.created_response(
+            data={
+                "already_registered": False,
+                "ticket": MyTicketDetailSerializer(ticket).data,
+            },
+            message=(
+                "Registration confirmed! Your free ticket is ready."
+                if event.is_free
+                else "Registration successful! Ticket created with Pending Payment status."
+            ),
+        )

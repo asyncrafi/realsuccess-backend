@@ -170,13 +170,16 @@ def mark_user_verified_for_event(email, event, user=None):
         else:
             name = norm_email.split("@")[0].replace(".", " ").capitalize()
 
+        payment_status = "Paid" if event.is_free else "Pending Payment"
         ticket = Ticket.objects.create(
             event=event,
             user=user if user else None,
             attendee_name=name,
             attendee_email=norm_email,
             ticket_type="General",
-            registration_status="Confirmed",
+            payment_status=payment_status,
+            ticket_status="Unused",
+            price_amount=event.price,
             access_code=event.access_code,
         )
 

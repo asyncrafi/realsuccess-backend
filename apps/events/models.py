@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.utils import timezone
 
@@ -17,8 +18,10 @@ class Event(models.Model):
     end_date = models.DateField(default=timezone.localdate)
     days_duration = models.PositiveIntegerField(default=3)
     total_tickets = models.PositiveIntegerField(default=400)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Active")
     banner_image = models.ImageField(upload_to="events/banners/", blank=True, null=True)
+    qr_registration_token = models.CharField(max_length=64, unique=True, db_index=True, blank=True, default="")
     qr_code_url = models.CharField(max_length=500, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -32,6 +35,17 @@ class Event(models.Model):
     def __str__(self):
         return f"{self.name} ({self.access_code})"
 
+    def save(self, *args, **kwargs):
+        if not self.qr_registration_token:
+            self.qr_registration_token = f"EVT-{uuid.uuid4().hex[:16].upper()}"
+        if not self.qr_code_url:
+            self.qr_code_url = f"realsuccess://event/{self.qr_registration_token}"
+        super().save(*args, **kwargs)
+
+    @property
+    def is_free(self):
+        return (self.price or 0) <= 0
+
     @property
     def attendees_count(self):
         """Count checked-in attendees"""
@@ -39,8 +53,8 @@ class Event(models.Model):
 
     @property
     def confirmed_registrations(self):
-        """Count registered attendees"""
-        return self.tickets.filter(registration_status="Confirmed").count()
+        """Count paid/confirmed attendees"""
+        return self.tickets.filter(payment_status="Paid").count()
 
 
 class EventStory(models.Model):
