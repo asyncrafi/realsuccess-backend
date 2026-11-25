@@ -5,7 +5,7 @@ from .models import TeamMember, Conversation, ChatMessage
 class ChatMessageSerializer(serializers.ModelSerializer):
     senderId = serializers.SerializerMethodField()
     senderName = serializers.CharField(source="sender_name")
-    isSender = serializers.BooleanField(source="is_sender")
+    isSender = serializers.SerializerMethodField()
     timestamp = serializers.SerializerMethodField()
 
     class Meta:
@@ -28,6 +28,15 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             return str(obj.sender_user.id)
         return "admin" if obj.is_sender else "user"
 
+    def get_isSender(self, obj):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            if request.user.is_staff:
+                return bool(obj.is_sender or obj.sender_user == request.user)
+            else:
+                return bool(obj.sender_user == request.user and not obj.is_sender)
+        return bool(obj.is_sender)
+
     def get_timestamp(self, obj):
         return obj.timestamp.strftime("%I:%M %p") if obj.timestamp else ""
 
@@ -35,6 +44,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 class TeamMemberSerializer(serializers.ModelSerializer):
     displayName = serializers.CharField(source="display_name")
     channelType = serializers.CharField(source="channel_type")
+    avatar = serializers.SerializerMethodField()
     eventName = serializers.SerializerMethodField()
     lastMessage = serializers.SerializerMethodField()
     lastMessageTime = serializers.SerializerMethodField()
@@ -58,6 +68,9 @@ class TeamMemberSerializer(serializers.ModelSerializer):
             "unreadCount",
             "messages",
         ]
+
+    def get_avatar(self, obj):
+        return obj.avatar or "/fallback_avatar.png"
 
     def get_eventName(self, obj):
         return obj.event.name if obj.event else None
@@ -95,7 +108,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
     def get_messages(self, obj):
         conv = self._get_conversation(obj)
         if conv:
-            return ChatMessageSerializer(conv.messages.all(), many=True).data
+            return ChatMessageSerializer(conv.messages.all(), many=True, context=self.context).data
         return []
 
 
